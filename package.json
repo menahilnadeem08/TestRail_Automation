@@ -3,6 +3,12 @@
   "version": "1.0.0",
   "description": "TestRail uploader helpers (consumed by web/ Next.js app)",
   "private": true,
+  "scripts": {
+    "install:all": "npm install && cd web && npm install",
+    "build": "cd web && npm install && npm run build",
+    "start": "cd web && npm start",
+    "dev": "cd web && npm run dev"
+  },
   "dependencies": {
     "axios": "^1.15.2",
     "cheerio": "^1.2.0",
