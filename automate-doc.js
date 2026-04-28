@@ -83,19 +83,46 @@ function extractLoomLinks($, cellEl) {
   return out;
 }
 
-function buildComment({ rawCellText, looms }) {
+function extractAllLinkTexts($, cellEl) {
+  const texts = [];
+  $(cellEl).find('a[href]').each((_, a) => {
+    const txt = cleanText($(a).text());
+    if (txt) texts.push(txt);
+  });
+  return texts;
+}
+
+function buildComment({ rawCellText, looms, allLinkTexts = [], title = '' }) {
   const stripped = rawCellText
     .replace(new RegExp(`[${PASS_ICON}${FAIL_ICON}${WARN_ICON}]`, 'g'), ' ')
     .replace(/\s+/g, ' ')
     .trim();
 
-  const loomLines = looms.map((l) => `[${l.text || 'Loom'}](${l.url})`);
-
   let leftover = stripped;
-  for (const l of looms) {
-    if (l.text) leftover = leftover.split(l.text).join(' ');
+  // Strip ALL link texts (loom + non-loom) from leftover
+  for (const t of allLinkTexts) {
+    if (t) {
+      const cleanT = t
+        .replace(new RegExp(`[${PASS_ICON}${FAIL_ICON}${WARN_ICON}]`, 'g'), ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (cleanT) leftover = leftover.split(cleanT).join(' ');
+    }
+  }
+  // Strip the test title itself (handles styled/colored text that isn't a real <a> tag)
+  if (title) {
+    leftover = leftover.split(title).join(' ');
   }
   leftover = leftover.replace(/\s+/g, ' ').trim();
+
+  // Build Loom link lines — keep original text, just clean status icons
+  const loomLines = looms.map((l) => {
+    const cleanLinkText = (l.text || '')
+      .replace(new RegExp(`[${PASS_ICON}${FAIL_ICON}${WARN_ICON}]`, 'g'), ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    return `[${cleanLinkText || 'Loom'}](${l.url})`;
+  });
 
   const parts = [];
   if (leftover) parts.push(leftover);
@@ -119,7 +146,8 @@ function emitResultFromCell({ $, cellEl, title, currentSection, results }) {
   if (!status || !(status in STATUS_MAP)) return false;
 
   const looms = extractLoomLinks($, cellEl);
-  const comment = buildComment({ rawCellText: cleanText(resultRaw), looms });
+  const allLinkTexts = extractAllLinkTexts($, cellEl);
+  const comment = buildComment({ rawCellText: cleanText(resultRaw), looms, allLinkTexts, title });
 
   results.push({
     section: currentSection,
