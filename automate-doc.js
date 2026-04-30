@@ -203,7 +203,7 @@ function formatCommentSectionSpacing(s) {
   return t;
 }
 
-/** Strip status icons for TestRail comment (cell body already includes path fix). */
+/** Strip status icons for TestRail; empty remainder → TestRail’s default Passed text for passes; blocked-only text is set in emitResultFromCell. */
 function finalizeCommentBody(body) {
   let t = String(body || '')
     .replace(/\u00A0/g, ' ')
@@ -238,7 +238,10 @@ function emitResultFromCell({ $, cellEl, title, currentSection, results }) {
   if (!status || !(status in STATUS_MAP)) return false;
 
   const looms = extractLoomLinks($, cellEl);
-  const comment = finalizeCommentBody(body);
+  let comment = finalizeCommentBody(body) || '';
+  if (status === 'blocked' && !comment) {
+    comment = 'The test was blocked.';
+  }
 
   results.push({
     section: currentSection,
@@ -326,9 +329,7 @@ async function parseDocx(filePath, aliases, skipTitles) {
           if (cells.length < 3) return;
           const entry = LG_GUIDES_ROW_TITLES[rowIdx];
           if (!entry) return;
-          const pyRaw = extractCellHtmlText($, cells[1]);
           const jsRaw = extractCellHtmlText($, cells[2]);
-          const pyHasStatus = classifyStatus(pyRaw);
           const jsHasStatus = classifyStatus(jsRaw);
           if (entry.python) {
             emitResultFromCell({
@@ -344,14 +345,6 @@ async function parseDocx(filePath, aliases, skipTitles) {
               emitResultFromCell({
                 $,
                 cellEl: cells[2],
-                title: entry.js,
-                currentSection,
-                results,
-              });
-            } else if (pyHasStatus) {
-              emitResultFromCell({
-                $,
-                cellEl: cells[1],
                 title: entry.js,
                 currentSection,
                 results,

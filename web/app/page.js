@@ -8,6 +8,8 @@ function escapeHtml(s) {
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
+const isDev = process.env.NODE_ENV === 'development';
+
 export default function Home() {
   const fileInputRef = useRef(null);
   const dropzoneRef = useRef(null);
@@ -259,7 +261,11 @@ export default function Home() {
       const r = await fetch('/api/upload', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId, framework: selectedFramework, dryRun }),
+        body: JSON.stringify({
+          sessionId,
+          framework: selectedFramework,
+          dryRun: isDev ? dryRun : false,
+        }),
       });
       const data = await r.json();
 
@@ -518,16 +524,21 @@ export default function Home() {
 
           <div
             className="row"
-            style={{ marginTop: 16, justifyContent: 'space-between' }}
+            style={{
+              marginTop: 16,
+              justifyContent: isDev ? 'space-between' : 'flex-end',
+            }}
           >
-            <label className="checkbox">
-              <input
-                type="checkbox"
-                checked={dryRun}
-                onChange={(e) => setDryRun(e.target.checked)}
-              />
-              <span>Dry run (don&apos;t actually post to TestRail)</span>
-            </label>
+            {isDev && (
+              <label className="checkbox">
+                <input
+                  type="checkbox"
+                  checked={dryRun}
+                  onChange={(e) => setDryRun(e.target.checked)}
+                />
+                <span>Dry run (don&apos;t actually post to TestRail)</span>
+              </label>
+            )}
             <div className="row" style={{ gap: 8 }}>
               <button className="btn btn-ghost" onClick={handleReset}>
                 Start over
@@ -558,7 +569,7 @@ export default function Home() {
 
           {result && <ResultSummary result={result} />}
 
-          {logs.length > 0 && (
+          {isDev && logs.length > 0 && (
             <div style={{ marginTop: 12 }}>
               <button
                 type="button"
