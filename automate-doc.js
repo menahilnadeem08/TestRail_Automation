@@ -10,6 +10,16 @@ const {
   mapCliMatrixTitle,
   isCliPackageMatrixTable,
 } = require('./cli-testrail-titles');
+const {
+  isLangGraphGuidesTable,
+  LG_GUIDES_ROW_TITLES,
+  isLangGraphQuickstartsTwoColTable,
+  isLangGraphQuickstartsThreeCol,
+  mapLangGraphQuickstartTwoCol,
+  mapLangGraphQuickstartThreeCol,
+  mapLangGraphTutorialVideoRow,
+  isLangGraphTutorialVideoTable,
+} = require('./langgraph-testrail-titles');
 
 const PASS_ICON = '\u2705';
 const FAIL_ICON = '\u274C';
@@ -20,8 +30,7 @@ function classifyStatus(text) {
   const hasWarn = text.includes(WARN_ICON);
   const hasPass = text.includes(PASS_ICON);
   if (hasFail) return 'fail';
-  if (hasWarn) return 'retest';
-  if (hasPass) return 'pass';
+  if (hasWarn || hasPass) return 'pass';
   return null;
 }
 
@@ -87,39 +96,86 @@ function extractLoomLinks($, cellEl) {
   return out;
 }
 
-function extractAllLinkTexts($, cellEl) {
-  const texts = [];
-  $(cellEl).find('a[href]').each((_, a) => {
-    const txt = cleanText($(a).text());
-    if (txt) texts.push(txt);
-  });
-  return texts;
+/**
+ * Docx/Google export often glues labels (no space before Issue Path / Error / etc.).
+ */
+function fixGluedIssueCommentLabels(s) {
+  return s
+    .replace(/(?<=\S)(?=Issue Path:)/gi, ' ')
+    .replace(/(?<=\S)(?=Error:)/gi, ' ')
+    .replace(/(?<=\S)(?=Explanation:)/gi, ' ')
+    .replace(/(?<=\S)(?=Attempted fix:)/gi, ' ')
+    .replace(/([.!?])(Explanation:)/gi, '$1 $2')
+    .replace(/([.!?])(Attempted fix:)/gi, '$1 $2')
+    .replace(/(Error:)(\S)/gi, '$1 $2')
+    .replace(/(Explanation:)(\S)/gi, '$1 $2')
+    .replace(/(Attempted fix:)(\S)/gi, '$1 $2');
 }
 
-function buildComment({ rawCellText, looms, allLinkTexts = [], title = '' }) {
+function escapeRegExp(str) {
+  return String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function normIssueLabel(s) {
+  return String(s || '')
+    .toLowerCase()
+    .replace(/-/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Last path segment after `Issue Path:` (arrow-separated), before Error / Explanation / Attempted fix. */
+function issuePathLastSegment(text) {
+  const ipIdx = text.search(/\bIssue Path:\s*/i);
+  if (ipIdx < 0) return null;
+  const fromIp = text.slice(ipIdx);
+  const pathMatch = fromIp.match(/^Issue Path:\s*(.+?)(?=\s+Error:|\s+Explanation:|\s+Attempted fix:|$)/is);
+  if (!pathMatch) return null;
+  const pathBody = pathMatch[1].trim();
+  const segs = pathBody.split(/\s*(?:->|→|—)\s*/i).map((x) => x.trim()).filter(Boolean);
+  const last = segs[segs.length - 1] || '';
+  return last.length >= 2 ? last : null;
+}
+
+/** Remove leading link title when it only repeats the Issue Path leaf (e.g. "Display Only"). */
+function stripLeadingDuplicateBeforeIssuePath(text) {
+  const re = /\bIssue Path:\s*/i;
+  const ipIdx = text.search(re);
+  if (ipIdx <= 0) return text;
+  const before = text.slice(0, ipIdx).replace(/\s+/g, ' ').trim();
+  if (!before) return text;
+  const last = issuePathLastSegment(text);
+  if (!last) return text;
+  if (normIssueLabel(before) === normIssueLabel(last)) {
+    return text.slice(ipIdx).trim();
+  }
+  return text;
+}
+
+/** Remove trailing repeat of the same path leaf (redundant footer line). */
+function stripTrailingDuplicatePathLeaf(text) {
+  const last = issuePathLastSegment(text);
+  if (!last || last.length < 2) return text;
+  const tail = new RegExp(`\\s+${escapeRegExp(last)}\\s*$`, 'i');
+  if (!tail.test(text)) return text;
+  return text.replace(tail, '').replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Build TestRail comment: strip status icons; fix glued labels; drop redundant leading/trailing
+ * link title when it matches the Issue Path leaf. Do not strip all anchor text from the body.
+ */
+function buildComment({ rawCellText, looms }) {
   const stripped = rawCellText
     .replace(new RegExp(`[${PASS_ICON}${FAIL_ICON}${WARN_ICON}]`, 'g'), ' ')
     .replace(/\s+/g, ' ')
     .trim();
 
-  let leftover = stripped;
-  // Strip ALL link texts (loom + non-loom) from leftover
-  for (const t of allLinkTexts) {
-    if (t) {
-      const cleanT = t
-        .replace(new RegExp(`[${PASS_ICON}${FAIL_ICON}${WARN_ICON}]`, 'g'), ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
-      if (cleanT) leftover = leftover.split(cleanT).join(' ');
-    }
-  }
-  // Strip the test title itself (handles styled/colored text that isn't a real <a> tag)
-  if (title) {
-    leftover = leftover.split(title).join(' ');
-  }
+  let leftover = fixGluedIssueCommentLabels(stripped);
+  leftover = stripLeadingDuplicateBeforeIssuePath(leftover);
+  leftover = stripTrailingDuplicatePathLeaf(leftover);
   leftover = leftover.replace(/\s+/g, ' ').trim();
 
-  // Build Loom link lines — keep original text, just clean status icons
   const loomLines = looms.map((l) => {
     const cleanLinkText = (l.text || '')
       .replace(new RegExp(`[${PASS_ICON}${FAIL_ICON}${WARN_ICON}]`, 'g'), ' ')
@@ -150,8 +206,7 @@ function emitResultFromCell({ $, cellEl, title, currentSection, results }) {
   if (!status || !(status in STATUS_MAP)) return false;
 
   const looms = extractLoomLinks($, cellEl);
-  const allLinkTexts = extractAllLinkTexts($, cellEl);
-  const comment = buildComment({ rawCellText: cleanText(resultRaw), looms, allLinkTexts, title });
+  const comment = buildComment({ rawCellText: cleanText(resultRaw), looms });
 
   results.push({
     section: currentSection,
@@ -191,6 +246,20 @@ async function parseDocx(filePath, aliases, skipTitles) {
       const headerCells = allRows.length > 0 ? $(allRows[0]).children('td, th').toArray() : [];
       const headerTitles = headerCells.map((c) => cleanTitle(extractCellHtmlText($, c)));
       const cliMatrix = isCliPackageMatrixTable(headerTitles, currentSection);
+      const firstCellRow0 = headerTitles[0] || '';
+      const lgGuides = isLangGraphGuidesTable(headerTitles, currentSection);
+      const lgQs2 =
+        !lgGuides && isLangGraphQuickstartsTwoColTable(allRows.length, firstCellRow0, currentSection);
+      const lgQs3 =
+        !lgGuides && !lgQs2 && isLangGraphQuickstartsThreeCol(headerTitles, currentSection);
+      const lgTutorialVideo = isLangGraphTutorialVideoTable(
+        allRows,
+        $,
+        currentSection,
+        lgGuides,
+        lgQs2,
+        lgQs3,
+      );
 
       if (String(currentSection || '').trim().toLowerCase() === 'cli' && !cliMatrix) {
         continue;
@@ -202,7 +271,7 @@ async function parseDocx(filePath, aliases, skipTitles) {
 
         const titleRaw = extractCellHtmlText($, cells[0]);
         const title = cleanTitle(titleRaw);
-        if (!title) return;
+        if (!title && !(lgGuides && rowIdx > 0)) return;
 
         if (cliMatrix) {
           if (rowIdx === 0) return;
@@ -219,6 +288,106 @@ async function parseDocx(filePath, aliases, skipTitles) {
           }
           return;
         }
+
+        if (lgGuides) {
+          if (rowIdx === 0) return;
+          if (cells.length < 3) return;
+          const entry = LG_GUIDES_ROW_TITLES[rowIdx];
+          if (!entry) return;
+          const pyRaw = extractCellHtmlText($, cells[1]);
+          const jsRaw = extractCellHtmlText($, cells[2]);
+          const pyHasStatus = classifyStatus(pyRaw);
+          const jsHasStatus = classifyStatus(jsRaw);
+          if (entry.python) {
+            emitResultFromCell({
+              $,
+              cellEl: cells[1],
+              title: entry.python,
+              currentSection,
+              results,
+            });
+          }
+          if (entry.js) {
+            if (jsHasStatus) {
+              emitResultFromCell({
+                $,
+                cellEl: cells[2],
+                title: entry.js,
+                currentSection,
+                results,
+              });
+            } else if (pyHasStatus) {
+              emitResultFromCell({
+                $,
+                cellEl: cells[1],
+                title: entry.js,
+                currentSection,
+                results,
+              });
+            }
+          }
+          return;
+        }
+
+        if (lgTutorialVideo) {
+          const tvTitle = mapLangGraphTutorialVideoRow(title);
+          if (!tvTitle) return;
+          emitResultFromCell({
+            $,
+            cellEl: cells[1],
+            title: tvTitle,
+            currentSection,
+            results,
+          });
+          return;
+        }
+
+        if (lgQs2) {
+          const m = mapLangGraphQuickstartTwoCol(title);
+          if (m.python) {
+            emitResultFromCell({
+              $,
+              cellEl: cells[1],
+              title: m.python,
+              currentSection,
+              results,
+            });
+          }
+          if (m.js) {
+            emitResultFromCell({
+              $,
+              cellEl: cells[1],
+              title: m.js,
+              currentSection,
+              results,
+            });
+          }
+          return;
+        }
+
+        if (lgQs3) {
+          if (rowIdx === 0) return;
+          if (cells.length < 3) return;
+          const m = mapLangGraphQuickstartThreeCol(title);
+          if (!m) return;
+          emitResultFromCell({
+            $,
+            cellEl: cells[1],
+            title: m.col1,
+            currentSection,
+            results,
+          });
+          emitResultFromCell({
+            $,
+            cellEl: cells[2],
+            title: m.col2,
+            currentSection,
+            results,
+          });
+          return;
+        }
+
+        if (!title) return;
 
         if (skipTitles && skipTitles.has(title.toLowerCase())) {
           let emittedAny = false;

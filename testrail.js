@@ -152,6 +152,12 @@ async function sendResultsForRun(api, runId, rowsForRun, dryRun, skipIfResulted)
     });
   }
 
+  const byCaseId = new Map();
+  for (const p of payload) {
+    byCaseId.set(p.case_id, p);
+  }
+  const uniquePayload = [...byCaseId.values()];
+
   if (unmatched.length) {
     console.warn(`  WARN: ${unmatched.length} title(s) not found in run ${runId}:`);
     unmatched.forEach((t) => console.warn(`    - ${t}`));
@@ -160,18 +166,22 @@ async function sendResultsForRun(api, runId, rowsForRun, dryRun, skipIfResulted)
     console.log(`  SKIP_IF_RESULTED=true → skipping ${skipped.length} test(s) that already have a result:`);
     skipped.forEach((s) => console.log(`    - ${s.title} (current status_id=${s.currentStatusId})`));
   }
-  if (!payload.length) {
+  if (!uniquePayload.length) {
     console.log(`  Nothing to send for run ${runId}.`);
     return { runId, sent: 0, testsFound: tests.length, unmatched, skipped, dryRun: !!dryRun };
   }
 
-  console.log(`  Prepared ${payload.length} result(s) for run ${runId}.`);
+  if (uniquePayload.length < payload.length) {
+    console.log(`  Deduped ${payload.length - uniquePayload.length} duplicate case_id(s) (last row wins).`);
+  }
+
+  console.log(`  Prepared ${uniquePayload.length} result(s) for run ${runId}.`);
   if (dryRun) {
-    console.log('  [DRY_RUN] Payload:', JSON.stringify(payload, null, 2));
+    console.log('  [DRY_RUN] Payload:', JSON.stringify(uniquePayload, null, 2));
     return { runId, sent: 0, testsFound: tests.length, unmatched, skipped, dryRun: true };
   }
 
-  const resp = await api.post(`add_results_for_cases/${runId}`, { results: payload });
+  const resp = await api.post(`add_results_for_cases/${runId}`, { results: uniquePayload });
   const count = Array.isArray(resp) ? resp.length : 0;
   console.log(`  ✓ TestRail accepted ${count} result(s) for run ${runId}.`);
   return { runId, sent: count, testsFound: tests.length, unmatched, skipped, dryRun: false };
