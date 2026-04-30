@@ -6,6 +6,10 @@ const mammoth = require('mammoth');
 const cheerio = require('cheerio');
 
 const { STATUS_MAP, runWithParsedRows } = require('./testrail');
+const {
+  mapCliMatrixTitle,
+  isCliPackageMatrixTable,
+} = require('./cli-testrail-titles');
 
 const PASS_ICON = '\u2705';
 const FAIL_ICON = '\u274C';
@@ -186,6 +190,11 @@ async function parseDocx(filePath, aliases, skipTitles) {
       const allRows = $(node).find('tr').toArray();
       const headerCells = allRows.length > 0 ? $(allRows[0]).children('td, th').toArray() : [];
       const headerTitles = headerCells.map((c) => cleanTitle(extractCellHtmlText($, c)));
+      const cliMatrix = isCliPackageMatrixTable(headerTitles, currentSection);
+
+      if (String(currentSection || '').trim().toLowerCase() === 'cli' && !cliMatrix) {
+        continue;
+      }
 
       allRows.forEach((tr, rowIdx) => {
         const cells = $(tr).children('td, th').toArray();
@@ -194,6 +203,22 @@ async function parseDocx(filePath, aliases, skipTitles) {
         const titleRaw = extractCellHtmlText($, cells[0]);
         const title = cleanTitle(titleRaw);
         if (!title) return;
+
+        if (cliMatrix) {
+          if (rowIdx === 0) return;
+          for (let j = 1; j < cells.length; j++) {
+            const mappedTitle = mapCliMatrixTitle(title, headerTitles[j]);
+            if (!mappedTitle) continue;
+            emitResultFromCell({
+              $,
+              cellEl: cells[j],
+              title: mappedTitle,
+              currentSection,
+              results,
+            });
+          }
+          return;
+        }
 
         if (skipTitles && skipTitles.has(title.toLowerCase())) {
           let emittedAny = false;
@@ -292,4 +317,6 @@ module.exports = {
   parseDocx,
   parseSectionAliases,
   parseSkipTitles,
+  mapCliMatrixTitle,
+  isCliPackageMatrixTable,
 };

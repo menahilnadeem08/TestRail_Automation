@@ -29,6 +29,7 @@ function requireEnv(name, value) {
 function normalizeTitle(title) {
   return String(title || '')
     .replace(/\s*\[\s*\d+\s*\]\s*$/g, '')
+    .replace(/[\u2013\u2014]/g, '-') // en-dash, em-dash → hyphen (TestRail / doc parity)
     .replace(/\s+/g, ' ')
     .replace(/\s*\/\s*/g, '/')
     .replace(/\s*-\s*/g, '-')
