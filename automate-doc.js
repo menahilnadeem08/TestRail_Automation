@@ -24,14 +24,35 @@ const {
 const PASS_ICON = '\u2705';
 const FAIL_ICON = '\u274C';
 const WARN_ICON = '\u26A0';
+const BLOCK_ICON = '\u{1F6AB}'; // 🚫 — TestRail blocked
 
 function classifyStatus(text) {
-  const hasFail = text.includes(FAIL_ICON);
-  const hasWarn = text.includes(WARN_ICON);
-  const hasPass = text.includes(PASS_ICON);
+  const t = String(text || '');
+  const hasFail = t.includes(FAIL_ICON);
+  const hasBlock = t.includes(BLOCK_ICON);
+  const hasWarn = t.includes(WARN_ICON);
+  const hasPass = t.includes(PASS_ICON);
   if (hasFail) return 'fail';
+  if (hasBlock) return 'blocked';
   if (hasWarn || hasPass) return 'pass';
   return null;
+}
+
+/**
+ * SKIP_TITLES uses table column headers as TestRail case titles. For Built-in Agent, the
+ * Quickstart row’s "CLI" column is one blob of results but TestRail’s case is named "Quickstart",
+ * not "CLI" — without this mapping uploads stay unmatched / Untested.
+ */
+function mapSkipTitlesTestRailTitle(sectionName, rowLabel, columnHeader) {
+  const s = String(sectionName || '').toLowerCase();
+  const r = String(rowLabel || '').trim().toLowerCase();
+  const c = String(columnHeader || '').trim().toLowerCase();
+  if (r !== 'quickstart' || !c) return columnHeader;
+  const builtin = /\bbuilt[-\s]?in\b/.test(s) || s.includes('builtin');
+  if (builtin && (c === 'cli' || /^cli\b/.test(c))) {
+    return 'Quickstart';
+  }
+  return columnHeader;
 }
 
 function cleanText(s) {
@@ -84,6 +105,80 @@ function extractCellHtmlText($, cellEl) {
   return text;
 }
 
+
+/**
+ * Walk cell DOM in order; emit Markdown for links so TestRail keeps click targets.
+ * Plain text and newlines are preserved; <a href> → [label](url) with a trailing space.
+ */
+function extractCellResultMarkdown($, cellEl) {
+  const buf = [];
+  function walk(el) {
+    $(el).contents().each((_, node) => {
+      if (node.type === 'text') {
+        buf.push(node.data || '');
+        return;
+      }
+      if (node.type !== 'tag') return;
+      const tag = String(node.name || node.tagName || '').toLowerCase();
+      if (tag === 'script' || tag === 'style') return;
+      if (tag === 'br') {
+        buf.push('\n');
+        return;
+      }
+      if (tag === 'a') {
+        const $a = $(node);
+        const text = $a.text().replace(/\u00A0/g, ' ').trim();
+        const href = ($a.attr('href') || '').trim();
+        if (href && /^javascript:/i.test(href)) {
+          if (text) buf.push(text, ' ');
+          return;
+        }
+        if (href && text) {
+          const esc = text.replace(/\\/g, '\\\\').replace(/\]/g, '\\]');
+          buf.push(`[${esc}](${href})`);
+        } else if (text) {
+          buf.push(text);
+        }
+        buf.push(' ');
+        return;
+      }
+      walk(node);
+    });
+  }
+  walk(cellEl);
+  return buf.join('').replace(/\u00A0/g, ' ');
+}
+
+/** Plain-text view of Markdown (for inject rules that expect raw words). */
+function markdownToPlainForCompare(md) {
+  return md.replace(/\[((?:\\]|[^\]])*)\]\([^)]+\)/g, (_, inner) => inner.replace(/\\\]/g, ']'));
+}
+
+/**
+ * Apply Your Components → Display Only path fix on Markdown: compare denuded string, then mirror
+ * replacement on MD and drop a trailing duplicate `[Display Only](...)` or plain “Display Only”.
+ */
+function injectDisplayOnlyForMarkdownBody($, cellEl, md) {
+  const plain = markdownToPlainForCompare(md);
+  const plainFixed = injectDisplayOnlyBeforeErrorIfLonelyLink($, cellEl, plain);
+  if (plainFixed === plain) return md;
+  let out = md.replace(/(Your Components\s*->\s*)Error:/gi, '$1Display Only Error:');
+  out = out.replace(/\s+\[Display Only\]\([^)]+\)\s*$/i, '').trim();
+  out = out.replace(/\s+Display Only\s*$/i, '').trim();
+  return out;
+}
+
+function injectDisplayOnlyBeforeErrorIfLonelyLink($, cellEl, text) {
+  const hasJump = /Your Components\s*->\s*Error:/i.test(text);
+  const already = /Your Components\s*->\s*Display Only\s*Error:/i.test(text);
+  if (!hasJump || already) return text;
+  const hasDisplayOnlyLink = $(cellEl).find('a').toArray().some((a) => /^display\s*only$/i.test($(a).text().replace(/\u00A0/g, ' ').trim()));
+  if (!hasDisplayOnlyLink) return text;
+  const next = text.replace(/(Your Components\s*->\s*)Error:/gi, '$1Display Only Error:');
+  if (next === text) return text;
+  return next.replace(/\s+Display Only\s*$/i, '').trim();
+}
+
 function extractLoomLinks($, cellEl) {
   const out = [];
   $(cellEl).find('a[href]').each((_, a) => {
@@ -96,98 +191,33 @@ function extractLoomLinks($, cellEl) {
   return out;
 }
 
-/**
- * Docx/Google export often glues labels (no space before Issue Path / Error / etc.).
- */
-function fixGluedIssueCommentLabels(s) {
-  return s
-    .replace(/(?<=\S)(?=Issue Path:)/gi, ' ')
-    .replace(/(?<=\S)(?=Error:)/gi, ' ')
-    .replace(/(?<=\S)(?=Explanation:)/gi, ' ')
-    .replace(/(?<=\S)(?=Attempted fix:)/gi, ' ')
-    .replace(/([.!?])(Explanation:)/gi, '$1 $2')
-    .replace(/([.!?])(Attempted fix:)/gi, '$1 $2')
-    .replace(/(Error:)(\S)/gi, '$1 $2')
-    .replace(/(Explanation:)(\S)/gi, '$1 $2')
-    .replace(/(Attempted fix:)(\S)/gi, '$1 $2');
+/** Insert line breaks so Issue Path, Error, Explanation, and Attempted fix read as separate blocks in TestRail. */
+function formatCommentSectionSpacing(s) {
+  let t = String(s || '');
+  t = t.replace(/\)\s*(?=Issue Path:)/gi, ')\n\n');
+  t = t.replace(/(Display Only)(?=Error:)/gi, '$1 ');
+  t = t.replace(/(Issue Path:[^\n]+?)\s*(Error:)/gi, '$1\n\n$2');
+  t = t.replace(/(Error:[^\n]+?)\s*(Explanation:)/gi, '$1\n\n$2');
+  t = t.replace(/(Explanation:[^\n]+?)\s*(Attempted fix:)/gi, '$1\n\n$2');
+  t = t.replace(/\n{3,}/g, '\n\n');
+  return t;
 }
 
-function escapeRegExp(str) {
-  return String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function normIssueLabel(s) {
-  return String(s || '')
-    .toLowerCase()
-    .replace(/-/g, ' ')
-    .replace(/\s+/g, ' ')
+/** Strip status icons for TestRail comment (cell body already includes path fix). */
+function finalizeCommentBody(body) {
+  let t = String(body || '')
+    .replace(/\u00A0/g, ' ')
+    .replace(/\)(?=Error:)/g, ') ')
+    .replace(/\)(?=Explanation:)/gi, ') ')
+    .replace(/\)(?=Attempted fix:)/gi, ') ')
+    .replace(/\.(?=Explanation:)/gi, '. ')
+    .replace(/\.(?=Attempted fix:)/gi, '. ');
+  t = formatCommentSectionSpacing(t);
+  return t
+    .replace(new RegExp(`[${PASS_ICON}${FAIL_ICON}${WARN_ICON}${BLOCK_ICON}]`, 'g'), ' ')
+    .replace(/\r\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
     .trim();
-}
-
-/** Last path segment after `Issue Path:` (arrow-separated), before Error / Explanation / Attempted fix. */
-function issuePathLastSegment(text) {
-  const ipIdx = text.search(/\bIssue Path:\s*/i);
-  if (ipIdx < 0) return null;
-  const fromIp = text.slice(ipIdx);
-  const pathMatch = fromIp.match(/^Issue Path:\s*(.+?)(?=\s+Error:|\s+Explanation:|\s+Attempted fix:|$)/is);
-  if (!pathMatch) return null;
-  const pathBody = pathMatch[1].trim();
-  const segs = pathBody.split(/\s*(?:->|→|—)\s*/i).map((x) => x.trim()).filter(Boolean);
-  const last = segs[segs.length - 1] || '';
-  return last.length >= 2 ? last : null;
-}
-
-/** Remove leading link title when it only repeats the Issue Path leaf (e.g. "Display Only"). */
-function stripLeadingDuplicateBeforeIssuePath(text) {
-  const re = /\bIssue Path:\s*/i;
-  const ipIdx = text.search(re);
-  if (ipIdx <= 0) return text;
-  const before = text.slice(0, ipIdx).replace(/\s+/g, ' ').trim();
-  if (!before) return text;
-  const last = issuePathLastSegment(text);
-  if (!last) return text;
-  if (normIssueLabel(before) === normIssueLabel(last)) {
-    return text.slice(ipIdx).trim();
-  }
-  return text;
-}
-
-/** Remove trailing repeat of the same path leaf (redundant footer line). */
-function stripTrailingDuplicatePathLeaf(text) {
-  const last = issuePathLastSegment(text);
-  if (!last || last.length < 2) return text;
-  const tail = new RegExp(`\\s+${escapeRegExp(last)}\\s*$`, 'i');
-  if (!tail.test(text)) return text;
-  return text.replace(tail, '').replace(/\s+/g, ' ').trim();
-}
-
-/**
- * Build TestRail comment: strip status icons; fix glued labels; drop redundant leading/trailing
- * link title when it matches the Issue Path leaf. Do not strip all anchor text from the body.
- */
-function buildComment({ rawCellText, looms }) {
-  const stripped = rawCellText
-    .replace(new RegExp(`[${PASS_ICON}${FAIL_ICON}${WARN_ICON}]`, 'g'), ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-  let leftover = fixGluedIssueCommentLabels(stripped);
-  leftover = stripLeadingDuplicateBeforeIssuePath(leftover);
-  leftover = stripTrailingDuplicatePathLeaf(leftover);
-  leftover = leftover.replace(/\s+/g, ' ').trim();
-
-  const loomLines = looms.map((l) => {
-    const cleanLinkText = (l.text || '')
-      .replace(new RegExp(`[${PASS_ICON}${FAIL_ICON}${WARN_ICON}]`, 'g'), ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
-    return `[${cleanLinkText || 'Loom'}](${l.url})`;
-  });
-
-  const parts = [];
-  if (leftover) parts.push(leftover);
-  if (loomLines.length) parts.push(loomLines.join('\n'));
-  return parts.join('\n\n');
 }
 
 function parseSkipTitles(raw) {
@@ -201,12 +231,14 @@ function parseSkipTitles(raw) {
 }
 
 function emitResultFromCell({ $, cellEl, title, currentSection, results }) {
-  const resultRaw = extractCellHtmlText($, cellEl);
+  let body = extractCellResultMarkdown($, cellEl);
+  body = injectDisplayOnlyForMarkdownBody($, cellEl, body);
+  const resultRaw = body;
   const status = classifyStatus(resultRaw);
   if (!status || !(status in STATUS_MAP)) return false;
 
   const looms = extractLoomLinks($, cellEl);
-  const comment = buildComment({ rawCellText: cleanText(resultRaw), looms });
+  const comment = finalizeCommentBody(body);
 
   results.push({
     section: currentSection,
@@ -394,16 +426,22 @@ async function parseDocx(filePath, aliases, skipTitles) {
           for (let j = 1; j < cells.length; j++) {
             const colTitle = headerTitles[j];
             if (!colTitle) continue;
+            const testRailTitle = mapSkipTitlesTestRailTitle(currentSection, title, colTitle);
             const ok = emitResultFromCell({
               $,
               cellEl: cells[j],
-              title: colTitle,
+              title: testRailTitle,
               currentSection,
               results,
             });
             if (ok) {
               emittedAny = true;
-              expandedFromRowLabel.push({ section: currentSection, rowLabel: title, columnTitle: colTitle });
+              expandedFromRowLabel.push({
+                section: currentSection,
+                rowLabel: title,
+                columnTitle: colTitle,
+                mappedTitle: testRailTitle,
+              });
             }
           }
           if (!emittedAny) {
@@ -427,7 +465,12 @@ async function parseDocx(filePath, aliases, skipTitles) {
 
   if (expandedFromRowLabel.length) {
     console.log(`Expanded ${expandedFromRowLabel.length} sub-test(s) from row labels in SKIP_TITLES (using table column headers as titles):`);
-    expandedFromRowLabel.forEach((e) => console.log(`  • [${e.section}] "${e.rowLabel}" → "${e.columnTitle}"`));
+    expandedFromRowLabel.forEach((e) => {
+      const mapNote = e.mappedTitle && e.mappedTitle !== e.columnTitle
+        ? ` → TestRail "${e.mappedTitle}"`
+        : '';
+      console.log(`  • [${e.section}] "${e.rowLabel}" → column "${e.columnTitle}"${mapNote}`);
+    });
   }
   if (skippedByTitle.length) {
     console.log(`SKIP_TITLES applied — skipped ${skippedByTitle.length} row(s) by title (no usable column headers):`);
