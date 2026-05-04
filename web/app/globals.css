@@ -244,7 +244,8 @@ input[type=file] { display: none; }
 :root[data-theme="light"] .file-pill .x { color: #14532d; }
 
 .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
-.grow { flex: 1 1 auto; }
+.grow { flex: 1; }
+.w-120 { width: 120px; }
 
 label.field-label {
   display: block; font-size: 13px; color: var(--muted);
@@ -391,6 +392,49 @@ select:focus, input[type=text]:focus {
   margin-bottom: 8px;
 }
 .result-plan b { color: var(--text); }
+
+.plan-box {
+  margin-top: 14px;
+  background: var(--accent-soft);
+  border: 1px solid var(--hint-border);
+  border-radius: 12px;
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.plan-box-head {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--accent);
+  font-weight: 700;
+}
+.plan-box-body {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.plan-info {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.plan-name {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+}
+.plan-id {
+  font-size: 13px;
+  color: var(--muted);
+}
+.plan-expiry {
+  font-size: 12px;
+  color: var(--muted);
+}
 
 .result-card {
   background: var(--input-bg);

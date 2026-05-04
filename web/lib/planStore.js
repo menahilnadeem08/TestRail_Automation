@@ -21,11 +21,12 @@ export function readPlan() {
   }
 }
 
-export function writePlan(planId, setBy) {
+export function writePlan(planId, planName, setBy) {
   ensureDir();
   const now = Date.now();
   const data = {
     planId: String(planId).trim(),
+    planName: planName || null,
     setAt: now,
     expiresAt: now + TTL_MS,
     setBy: setBy || null,

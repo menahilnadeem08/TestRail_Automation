@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 import { readPlan, writePlan, clearPlan } from '../../../lib/planStore.js';
+import { loadParentEnv } from '../../../lib/env.js';
+import { makeClient } from '../../../../testrail.js';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -34,7 +36,17 @@ export async function POST(request) {
     request.headers.get('x-real-ip') ||
     null;
 
-  const data = writePlan(trimmed, ip);
+  loadParentEnv();
+  let planName = null;
+  try {
+    const api = makeClient(process.env);
+    const plan = await api.get(`get_plan/${trimmed}`);
+    planName = plan.name;
+  } catch (err) {
+    console.error('Failed to fetch plan name from TestRail:', err.message);
+  }
+
+  const data = writePlan(trimmed, planName, ip);
   return NextResponse.json(data);
 }
 

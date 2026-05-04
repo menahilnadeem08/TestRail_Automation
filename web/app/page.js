@@ -129,9 +129,10 @@ export default function Home() {
       const data = await r.json();
       if (!r.ok) throw new Error(data.error || 'Failed to save plan ID');
       setStoredPlan(data);
+      const displayName = data.planName ? `<b>${escapeHtml(data.planName)}</b> (#${escapeHtml(data.planId)})` : `<b>${escapeHtml(data.planId)}</b>`;
       setPlanAlert({
         type: 'success',
-        msg: `Plan ID <b>${escapeHtml(data.planId)}</b> saved. It will be used by everyone for the next 24&nbsp;hours.`,
+        msg: `Plan ${displayName} saved. It will be used by everyone for the next 24&nbsp;hours.`,
       });
       refreshStatuses();
     } catch (err) {
@@ -401,11 +402,21 @@ export default function Home() {
         </div>
 
         {storedPlan && (
-          <div className="stats">
-            <span>
-              Current: <b>{storedPlan.planId}</b>
-            </span>
-            <span>{formatExpiry(storedPlan.expiresAt)}</span>
+          <div className="plan-box">
+            <div className="plan-box-head">Active TestRail Plan</div>
+            <div className="plan-box-body">
+              <div className="plan-info">
+                {storedPlan.planName ? (
+                  <>
+                    <span className="plan-name">{storedPlan.planName}</span>
+                    <span className="plan-id">#{storedPlan.planId}</span>
+                  </>
+                ) : (
+                  <span className="plan-name">Plan #{storedPlan.planId}</span>
+                )}
+              </div>
+              <div className="plan-expiry">{formatExpiry(storedPlan.expiresAt)}</div>
+            </div>
           </div>
         )}
         {!storedPlan && planLoaded && (
