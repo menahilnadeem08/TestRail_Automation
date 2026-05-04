@@ -306,6 +306,7 @@ async function parseDocx(filePath, aliases, skipTitles) {
 
         const titleRaw = extractCellHtmlText($, cells[0]);
         const title = cleanTitle(titleRaw);
+
         if (!title && !(lgGuides && rowIdx > 0)) return;
 
         if (cliMatrix) {
