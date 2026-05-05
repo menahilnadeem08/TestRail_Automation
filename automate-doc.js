@@ -20,6 +20,12 @@ const {
   mapLangGraphTutorialVideoRow,
   isLangGraphTutorialVideoTable,
 } = require('./langgraph-testrail-titles');
+const {
+  isCrewAIFlowsSection,
+  isCrewAIGuidesTable,
+  isCrewAIQuickstartTable,
+  CREWAI_GUIDES_ROW_TITLES,
+} = require('./crewai-testrail-titles');
 
 const PASS_ICON = '\u2705';
 const FAIL_ICON = '\u274C';
@@ -295,6 +301,8 @@ async function parseDocx(filePath, aliases, skipTitles) {
         lgQs2,
         lgQs3,
       );
+      const crewaiGuides = isCrewAIGuidesTable(headerTitles, currentSection);
+      const crewaiQs = isCrewAIQuickstartTable(headerTitles, currentSection);
 
       if (String(currentSection || '').trim().toLowerCase() === 'cli' && !cliMatrix) {
         continue;
@@ -407,6 +415,33 @@ async function parseDocx(filePath, aliases, skipTitles) {
             $,
             cellEl: cells[2],
             title: m.col2,
+            currentSection,
+            results,
+          });
+          return;
+        }
+
+        if (crewaiQs) {
+          if (rowIdx === 0) return;
+          if (cells.length < 3) return;
+          emitResultFromCell({
+            $,
+            cellEl: cells[2],
+            title: 'Quickstart – Code Along',
+            currentSection,
+            results,
+          });
+          return;
+        }
+
+        if (crewaiGuides) {
+          if (rowIdx === 0) return;
+          const mappedTitle = CREWAI_GUIDES_ROW_TITLES[rowIdx];
+          if (!mappedTitle) return;
+          emitResultFromCell({
+            $,
+            cellEl: cells[1],
+            title: mappedTitle,
             currentSection,
             results,
           });
