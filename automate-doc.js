@@ -9,6 +9,8 @@ const { STATUS_MAP, runWithParsedRows } = require('./testrail');
 const {
   mapCliMatrixTitle,
   isCliPackageMatrixTable,
+  isCliInitFlowTable,
+  isCliCommandTable,
 } = require('./cli-testrail-titles');
 const {
   isLangGraphGuidesTable,
@@ -303,8 +305,10 @@ async function parseDocx(filePath, aliases, skipTitles) {
       );
       const crewaiGuides = isCrewAIGuidesTable(headerTitles, currentSection);
       const crewaiQs = isCrewAIQuickstartTable(headerTitles, currentSection);
+      const cliInitFlow = isCliInitFlowTable(headerTitles, currentSection);
+      const cliCommand = isCliCommandTable(headerTitles, currentSection);
 
-      if (String(currentSection || '').trim().toLowerCase() === 'cli' && !cliMatrix) {
+      if (String(currentSection || '').trim().toLowerCase() === 'cli' && !cliMatrix && !cliInitFlow && !cliCommand) {
         continue;
       }
 
@@ -329,6 +333,42 @@ async function parseDocx(filePath, aliases, skipTitles) {
               currentSection,
               results,
             });
+          }
+          return;
+        }
+
+        if (cliInitFlow) {
+          if (rowIdx === 0) return;
+          if (cells.length < 1) return;
+          const fullTitle = cleanTitle($(cells[0]).text());
+
+          for (let j = 1; j < cells.length; j++) {
+            const ok = emitResultFromCell({
+              $,
+              cellEl: cells[j],
+              title: fullTitle,
+              currentSection,
+              results,
+            });
+            if (ok) break;
+          }
+          return;
+        }
+
+        if (cliCommand) {
+          if (rowIdx === 0) return;
+          if (cells.length < 1) return;
+          const fullTitle = cleanTitle($(cells[0]).text());
+
+          for (let j = 1; j < cells.length; j++) {
+            const ok = emitResultFromCell({
+              $,
+              cellEl: cells[j],
+              title: fullTitle,
+              currentSection,
+              results,
+            });
+            if (ok) break;
           }
           return;
         }

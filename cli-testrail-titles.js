@@ -45,6 +45,8 @@ function rowKeyFromLabel(rowLabel) {
   const k = normRow(rowLabel).replace(/,/g, ' ').replace(/\s+/g, ' ');
   const aliases = [
     [/crewai\s*[-–]\s*flows?/, 'crewai'],
+    [/langgraph\s*[-–]\s*py.*langsmith/i, 'lg_py_langsmith'],
+    [/langgraph\s*[-–]\s*py.*fast\s?api/i, 'lg_py_fastapi'],
     [/laanggraph\s*[-–]\s*py|langgraph\s*\(?py\)?|langgraph\s*-\s*py/i, 'lg_py'],
     [/laanggraph\s*[-–]\s*js|langgraph\s*\(?js\)?|langgraph\s*-\s*js|^lg\s*js$/i, 'lg_js'],
     [/built\s*[-–]?\s*in\s*agent|built\s*in\s*agent/, 'builtin'],
@@ -67,6 +69,8 @@ function rowKeyFromLabel(rowLabel) {
 
 const PM_PREFIX = {
   crewai: null,
+  lg_py_langsmith: 'LangGraph CLI py',
+  lg_py_fastapi: 'LangGraph CLI py',
   lg_py: 'LangGraph CLI py',
   lg_js: 'LangGraph CLI js',
   builtin: 'Built-in',
@@ -88,8 +92,10 @@ const EXISTING_TITLE = {
   llamaindex: 'LlamaIndex Use Existing Agent',
   pydantic: 'Pydantic Use Existing Agent',
   aws: 'AWS Strands Use Existing Agent',
-  lg_py: 'LangGraph – Use existing Agent Method | Langsmith',
-  lg_js: 'LangGraph – Use existing Agent Method | FASTAPI',
+  lg_py_langsmith: 'LangGraph - Use existing Agent Method | Langsmith',
+  lg_py_fastapi: 'LangGraph - Use existing Agent Method | FASTAPI',
+  lg_py: 'LangGraph - Use existing Agent Method | Langsmith',
+  lg_js: 'LangGraph - Use existing Agent Method | FASTAPI',
   builtin: null,
   adk: 'Adk- Use existing agent method',
   ms_py: 'Microsoft-agent-framework (py) Use Existing Agent',
@@ -131,6 +137,20 @@ function isCliPackageMatrixTable(headerTitles, sectionName) {
     if (k) kinds.add(k);
   }
   return kinds.has('existing') && kinds.has('npm') && kinds.has('pnpm') && kinds.has('yarn') && kinds.has('bun');
+}
+
+function isCliInitFlowTable(headerTitles, sectionName) {
+  if (normRow(sectionName) !== 'cli') return false;
+  const blob = headerTitles.join(' ').toLowerCase();
+  return blob.includes('chosen cli init flow') && blob.includes('logged in');
+}
+
+function isCliCommandTable(headerTitles, sectionName) {
+  if (normRow(sectionName) !== 'cli') return false;
+  const h0 = normCol(headerTitles[0] || '');
+  const h1 = normCol(headerTitles[1] || '');
+  const h2 = normCol(headerTitles[2] || '');
+  return h0 === 'command' && h1 === 'pre-req' && h2 === 'expected result';
 }
 
 /** All TestRail titles for CLI matrix (for reference .txt), grouped conceptually */
@@ -175,6 +195,8 @@ function allCanonicalCliCaseTitles() {
 module.exports = {
   mapCliMatrixTitle,
   isCliPackageMatrixTable,
+  isCliInitFlowTable,
+  isCliCommandTable,
   columnKind,
   rowKeyFromLabel,
   allCanonicalCliCaseTitles,
