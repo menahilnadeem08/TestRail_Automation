@@ -44,12 +44,12 @@ const CREWAI_GUIDES_ROW_TITLES = {
   12: 'Shared State – Predictive State Updates',
   13: 'Frontend Actions',
   15: 'Multi-Agent Flows',
-  17: 'Persistence | Loading Agent State',
-  18: 'Persistence | Threads',
-  19: 'Persistence | Message Persistence',
-  21: 'Advanced | Disabling State Streaming',
-  22: 'Advanced | Manually Emitting Messages',
-  23: 'Advanced | Exiting the Agent Loop',
+  17: 'Loading Agent State',
+  18: 'Threads',
+  19: 'Message Persistence',
+  21: 'Disabling State Streaming',
+  22: 'Manually Emitting Messages',
+  23: 'Exiting the Agent Loop',
 };
 
 module.exports = {
