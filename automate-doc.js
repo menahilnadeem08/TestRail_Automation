@@ -28,6 +28,12 @@ const {
   isCrewAIQuickstartTable,
   CREWAI_GUIDES_ROW_TITLES,
 } = require('./crewai-testrail-titles');
+const {
+  isDeepAgentsGuidesTable,
+  DEEP_AGENTS_GUIDES_ROW_TITLES,
+  isDeepAgentsQuickstartTable,
+  mapDeepAgentsQuickstart,
+} = require('./deep-agents-testrail-titles');
 
 const PASS_ICON = '\u2705';
 const FAIL_ICON = '\u274C';
@@ -308,6 +314,9 @@ async function parseDocx(filePath, aliases, skipTitles) {
       const cliInitFlow = isCliInitFlowTable(headerTitles, currentSection);
       const cliCommand = isCliCommandTable(headerTitles, currentSection);
 
+      const daGuides = isDeepAgentsGuidesTable(headerTitles, currentSection);
+      const daQs = !daGuides && isDeepAgentsQuickstartTable(allRows.length, firstCellRow0, currentSection);
+
       if (String(currentSection || '').trim().toLowerCase() === 'cli' && !cliMatrix && !cliInitFlow && !cliCommand) {
         continue;
       }
@@ -485,6 +494,68 @@ async function parseDocx(filePath, aliases, skipTitles) {
             currentSection,
             results,
           });
+          return;
+        }
+
+        if (daGuides) {
+          if (rowIdx === 0) return;
+          if (cells.length < 3) return;
+          const entry = DEEP_AGENTS_GUIDES_ROW_TITLES[rowIdx];
+          if (!entry) return;
+          const jsRaw = extractCellHtmlText($, cells[2]);
+          const jsHasStatus = classifyStatus(jsRaw);
+          if (entry.python) {
+            emitResultFromCell({
+              $,
+              cellEl: cells[1],
+              title: entry.python,
+              currentSection,
+              results,
+            });
+          }
+          if (entry.js) {
+            if (jsHasStatus) {
+              emitResultFromCell({
+                $,
+                cellEl: cells[2],
+                title: entry.js,
+                currentSection,
+                results,
+              });
+            }
+          }
+          return;
+        }
+
+        if (daQs) {
+          const m = mapDeepAgentsQuickstart(title);
+          if (m.python) {
+            emitResultFromCell({
+              $,
+              cellEl: cells[1],
+              title: m.python,
+              currentSection,
+              results,
+            });
+          }
+          if (m.js) {
+            emitResultFromCell({
+              $,
+              cellEl: cells[1],
+              title: m.js,
+              currentSection,
+              results,
+            });
+          }
+          if (m.fastapi) {
+            emitResultFromCell({
+              $,
+              cellEl: cells[1],
+              title: m.fastapi,
+              currentSection,
+              results,
+            });
+          }
           return;
         }
 
